@@ -1,0 +1,80 @@
+version: '2.4'
+
+services:
+  neo4j-gathering:
+    image: neo4j:5-community
+    container_name: neo4j-gathering
+    hostname: neo4j-gathering
+    mem_limit: 4G
+    restart: unless-stopped
+    ports:
+      - "7474:7474"   # Neo4j Browser
+      - "7687:7687"   # Bolt protocol
+    volumes:
+      - ./neo4j_data_volume:/data
+      - ./neo4j_logs_volume:/logs
+      - ./neo4j_import_volume:/import
+      - ./neo4j_plugins_volume:/plugins
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_PLUGINS=["apoc","graph-data-science"]
+      - NEO4J_dbms.security.procedures.allowlist=apoc.*,gds.*
+      - NEO4J_apoc.import.file.enabled=true
+    networks:
+      - gathering_network
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "password", "RETURN 1;"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio-gathering:
+    image: minio/minio:latest
+    container_name: minio-gathering
+    hostname: minio-gathering
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=minio
+      - MINIO_ROOT_PASSWORD=password
+    volumes:
+      - ./minio_data:/data
+    ports:
+      - "9000:9000"   # MinIO API
+      - "9001:9001"   # MinIO Console
+    networks:
+      - gathering_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  influxdb-gathering:
+    image: influxdb:2.2
+    container_name: influxdb-gathering
+    hostname: influxdb-gathering
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - ./influxdb_data:/var/lib/influxdb2
+      - ./influxdb_config:/etc/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=influxdb
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password
+      - DOCKER_INFLUXDB_INIT_ORG=gathering-org
+      - DOCKER_INFLUXDB_INIT_BUCKET=gathering-bucket
+      - DOCKER_INFLUXDB_INIT_RETENTION=7d
+    networks:
+      - gathering_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+networks:
+  gathering_network:
+    driver: bridge
